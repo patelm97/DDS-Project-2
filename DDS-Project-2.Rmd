@@ -1,0 +1,300 @@
+---
+title: "CaseStudy 2"
+author: "Milan Patel"
+date: "2/8/2022"
+output: html_document
+---
+
+## DDSAnalytics is an analytics company that specializes in talent management solutions for Fortune 100 companies. Below are the findings related to the Attrition and Monthly Income (Salary) datasets to thankfully present to the CEO and CFO of Frito Lay. Our findings are organized into the provided models to find predictions followed by additional analysis that we found interesting.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(magrittr)
+library(maps)
+library(dplyr)
+library(rvest)
+library(xml2)
+library(scico)
+library(caret)
+library(e1071)
+library(class)
+library(robotstxt)
+library(naivebayes)
+library(psych)
+library(Metrics)
+library(earth)
+library(corrplot)
+library(GGally)
+library(readxl)
+```
+
+#Import Raw Dataset
+```{r}
+CS2 <- read.csv("/Users/milan/Downloads/MSDS_6306_Doing-Data-Science-Master/Unit 14 and 15 Case Study 2/CaseStudy2-data.csv", header = TRUE, encoding = "UTF-8")
+```
+
+#Explore Dataset and Clean
+```{r}
+#head(CS2)
+
+dim(CS2)
+
+## Remove columns: ID, EmployeeNumber, EmployeeCount, Over18, StandardHours
+CS2New = CS2 %>% dplyr::select(-c('ID', 'EmployeeNumber', 'EmployeeCount', 'Over18', 'StandardHours'))
+
+#Check for missing values
+CS2New[!complete.cases(CS2New),]
+
+
+# Create split copy of data by factor and numeric
+categoricalCols = CS2New %>% select_if(is.factor)
+continuousCols = CS2New %>% select_if(is.numeric)
+
+# convert levels that were meant to be factors instead of integers
+CS2New$Attrition <- as.factor(CS2New$Attrition)
+CS2New$EnvironmentSatisfaction <- as.factor(CS2New$EnvironmentSatisfaction)
+CS2New$JobInvolvement <- as.factor(CS2New$JobInvolvement)
+CS2New$JobLevel <- as.factor(CS2New$JobLevel)
+CS2New$JobSatisfaction <- as.factor(CS2New$JobSatisfaction)
+CS2New$PerformanceRating <- as.factor(CS2New$PerformanceRating)
+CS2New$RelationshipSatisfaction <- as.factor(CS2New$RelationshipSatisfaction)
+CS2New$WorkLifeBalance <- as.factor(CS2New$WorkLifeBalance)
+CS2New$StockOptionLevel <- as.factor(CS2New$StockOptionLevel)
+
+```
+
+
+### Visualizations
+```{r}
+continuousCols.cor = cor(continuousCols)
+corrplot(cor(continuousCols), main = '\n\n Correlation plot for Numeric Variables',method="square")
+
+CS2New %>% ggplot(aes(Attrition, fill = Attrition)) + 
+  geom_bar(stat = "count") + ggtitle("Comparison of Attrition")
+
+CS2New %>% ggplot(aes(x = JobRole, fill = Attrition)) +
+ geom_bar(position = "fill") +
+ ggtitle("Attrition by Job Role") +
+ coord_flip() +
+ theme_minimal()
+```
+
+# Modeling Attrition
+
+## Identify Top Three Attrition Predictors
+```{r}
+Top3Pred <- earth(Attrition ~ ., data = CS2New)
+evimp <- evimp(Top3Pred)
+evimp[1:3, c(3,4,6)]
+
+CS2New %>% dplyr::select('OverTime', 'YearsWithCurrManager', 'Age', 'Attrition') %>% 
+  ggpairs(mapping = ggplot2::aes(color=Attrition))
+
+
+```
+
+
+### Naive Bayes Model
+```{r}
+trainIndices = sample(seq(1:dim(CS2New)[1]), round(.8*dim(CS2New)[1]))
+trainCS2 = CS2New[trainIndices,]
+testCS2 = CS2New[-trainIndices,]
+
+model = naiveBayes(Attrition ~ ., data = trainCS2, usekernel = TRUE)
+table = predict(model, testCS2)
+CM = confusionMatrix(table, testCS2$Attrition)
+CM
+
+#Accuracy of 81.61%. Sensitivity is 84.93% and Specificity is 64.29%.
+```
+
+### Predicting Attrition
+```{r, include=FALSE}
+# import NoAttrition Dataset
+NoAttrition <- read.csv("/Users/milan/Downloads/MSDS_6306_Doing-Data-Science-Master/Unit 14 and 15 Case Study 2/CaseStudy2CompSet No Attrition.csv", header = TRUE, encoding = "UTF-8")
+
+NoAttritionNew = NoAttrition %>% dplyr::select(-c('ID', 'EmployeeNumber', 'EmployeeCount', 'Over18', 'StandardHours'))
+
+#head(NoAttritionNew)
+#dim(NoAttritionNew)
+#str(NoAttritionNew)
+
+# convert levels that were meant to be factors instead of integers
+NoAttritionNew$EnvironmentSatisfaction <- factor(NoAttritionNew$EnvironmentSatisfaction)
+NoAttritionNew$JobInvolvement <- factor(NoAttritionNew$JobInvolvement)
+NoAttritionNew$JobLevel <- factor(NoAttritionNew$JobLevel)
+NoAttritionNew$JobSatisfaction <- factor(NoAttritionNew$JobSatisfaction)
+NoAttritionNew$PerformanceRating <- factor(NoAttritionNew$PerformanceRating)
+NoAttritionNew$RelationshipSatisfaction <- factor(NoAttritionNew$RelationshipSatisfaction)
+NoAttritionNew$WorkLifeBalance <- factor(NoAttritionNew$WorkLifeBalance)
+NoAttritionNew$StockOptionLevel <- factor(NoAttritionNew$StockOptionLevel)
+
+# Make predictions
+AttritionPred <- predict(model, NoAttritionNew)
+# merge predictions
+NoAttritionNew$Attrition <- AttritionPred
+# Write CSV
+write.csv(NoAttritionNew, file = "/Users/milan/Downloads/DDS-Project-2/Predictions/CaseStudy2Patel Attrition.csv")
+```
+
+
+### kNN Model
+```{r}
+# Loop for many k and the average of many training / test partition
+#set.seed(1432)
+#splitPerc = .8
+#iterations = 500
+#numks = 60
+#masterAcc = matrix(nrow = iterations, ncol = numks)
+
+#CS2New_K <- CS2New %>% select('Attrition', 'TotalWorkingYears', 'StockOptionLevel', 'JobInvolvement')
+  
+#for(j in 1:iterations)
+#{
+  #trainIndices = createDataPartition(CS2New_K$Attrition, times = 1, p = splitPerc, list = FALSE)
+  #trainCS2_K = CS2New_K[trainIndices,]
+  #testCS2_K = CS2New_K[-trainIndices,]
+  #for(i in 1:numks)
+  #{
+   # classifications = knn(trainCS2_K[,2:4],testCS2_K[,2:4], trainCS2_K$Attrition, prob = TRUE, k = i)
+    #table(testCS2_K$Attrition,classifications)
+    #CM = confusionMatrix(table(testCS2_K$Attrition,classifications))
+    #masterAcc[j,i] = CM$overall[1]
+  #}
+
+#}
+
+#MeanAcc = colMeans(masterAcc)
+
+#plot(seq(1,numks,1),MeanAcc, type = "l")
+#which.max(MeanAcc)
+#max(MeanAcc)
+
+# Run the algorithm
+#trainCS2_Kdf <- as.data.frame(trainCS2_K)
+#testCS2_Kdf <- as.data.frame(testCS2_K)
+#classification <- knn(trainCS2_Kdf[,1:4], testCS2_Kdf[,1:4], CS2New_K$Attrition, prob = TRUE, k = 8)
+
+# Confusion Matrix
+#confusionMatrix(table(classification, CS2New_K$Attrition))
+```
+
+# Multiple Linear Regression
+
+### Step-wise Regression
+```{r}
+library(MASS)
+library(leaps)
+# base intercept only model
+basemodel <- lm(MonthlyIncome ~ 1 , data= CS2New)
+
+# full model with all predictors
+allmodel <- lm(MonthlyIncome ~ . , data= CS2New)
+
+# perform step-wise algorithm
+stepModel <- stepAIC(basemodel, scope = list(lower = basemodel, upper = allmodel), direction = "both", trace = FALSE, steps = 1000)
+
+# find the shortlisted variable.
+shortlistedVars <- names(unlist(stepModel[[1]]))
+
+# remove the intercept
+shortlistedVars <- shortlistedVars[!shortlistedVars %in% "(Intercept)"] 
+print(shortlistedVars)
+```
+
+
+#Visualizations for top 3 variables for Monthly Income
+```{r}
+#JobLevel
+CS2New %>% ggplot(aes(x = JobLevel, y = MonthlyIncome)) +
+  geom_point() + ggtitle("JobLevel vs. Monthly Income")
+
+#JobRole
+CS2New %>% ggplot(aes(x = JobRole, y = MonthlyIncome)) +
+  geom_boxplot(aes(color = JobRole)) + ggtitle("JobRole vs. Monthly Income")
+
+#TotalWorkingYears
+CS2New %>% ggplot(aes(x = TotalWorkingYears, y = MonthlyIncome)) +
+  geom_point() + ggtitle("Total Working Hours vs. Monthly Income")
+```
+
+## Modeling Monthly Income Salary
+
+### Multiple Linear Regression Top 3 Variables
+```{r}
+# The top three predictors found from step-wise algorithm.
+model2 <- lm(MonthlyIncome ~ JobLevel + JobRole + TotalWorkingYears, data = trainCS2)
+
+summary(model2)
+
+# residual histogram
+hist(model2$residuals, col = "blue", main = "Histogram of Residuals")
+plot(model2$fitted.values,model2$residuals, main = "Plot of Residuals v. Fitted Values")
+abline(a=0, b=0)
+
+# Make predictions
+model2.fit <- predict(model2, newdata = testCS2)
+
+# Plot actual vs predicted
+plot(model2.fit,testCS2$MonthlyIncome, xlab="predicted", ylab="actual")
+abline(a=0,b=1)
+
+#Find RMSE
+rmse(testCS2$MonthlyIncome, model2.fit)
+sqrt(mean(model2$residuals^2))
+#RMSE = 980.42
+```
+
+### Predicting Monthly Income
+```{r, include=FALSE}
+# import NoSalary dataset and export predictions
+NoSalary <- read.csv("/Users/milan/Downloads/DDS-Project-2/Raw Data/CaseStudy2CompSet No Salary.csv", header = TRUE, encoding = "UTF-8")
+
+NoSalaryNew = NoSalary %>% dplyr::select(-c('ID', 'EmployeeNumber', 'EmployeeCount', 'Over18', 'StandardHours'))
+
+head(NoSalaryNew)
+dim(NoSalaryNew)
+str(NoSalaryNew)
+
+# convert levels that were meant to be factors instead of integers
+NoSalaryNew$EnvironmentSatisfaction <- as.factor(NoSalaryNew$EnvironmentSatisfaction)
+NoSalaryNew$JobInvolvement <- as.factor(NoSalaryNew$JobInvolvement)
+NoSalaryNew$JobLevel <- as.factor(NoSalaryNew$JobLevel)
+NoSalaryNew$JobSatisfaction <- as.factor(NoSalaryNew$JobSatisfaction)
+NoSalaryNew$PerformanceRating <- as.factor(NoSalaryNew$PerformanceRating)
+NoSalaryNew$RelationshipSatisfaction <- as.factor(NoSalaryNew$RelationshipSatisfaction)
+NoSalaryNew$WorkLifeBalance <- as.factor(NoSalaryNew$WorkLifeBalance)
+NoSalaryNew$StockOptionLevel <- as.factor(NoSalaryNew$StockOptionLevel)
+
+# Make predictions
+salaryPredictions <- predict(model2, newdata = NoSalaryNew)
+
+# merge predictions
+NoSalaryNew$MonthlyIncome <- salaryPredictions
+
+# Write CSV
+write.csv(NoSalaryNew, file = "/Users/milan/Downloads/DDS-Project-2/Predictions/Case2PredictionsPatel Salary.csv")
+```
+
+### Multiple Linear Regression for All Variables
+```{r}
+# Multiple linear regression with all predictors used
+model <- lm(MonthlyIncome ~ ., data = trainCS2)
+
+summary(model)
+
+# test predictions
+model_fit <- predict(model, newdata = testCS2)
+
+# Calculate RSME
+rmse(testCS2$MonthlyIncome, model_fit)
+
+sqrt(mean(model$residuals^2))
+
+#RMSE = 1067.04
+```
